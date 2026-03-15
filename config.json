@@ -1,0 +1,62 @@
+{
+  "business": {
+    "name": "Bond's HVAC Services",
+    "phone": "(555) 123-4567",
+    "website": "https://bondshvac.com",
+    "address": "123 Main St, Springfield, IL"
+  },
+  "greeting": "Hi there! Thanks for reaching out to Bond's HVAC Services. I'm here to help you with heating, cooling, or air quality questions. How can I help you today?",
+  "services": [
+    {
+      "name": "AC Repair",
+      "description": "Same-day air conditioning repair for all major brands",
+      "priceRange": "$89 - $350"
+    },
+    {
+      "name": "Furnace Installation",
+      "description": "Full furnace replacement including removal of old unit",
+      "priceRange": "$2,500 - $6,000"
+    },
+    {
+      "name": "Duct Cleaning",
+      "description": "Complete air duct cleaning and sanitization",
+      "priceRange": "$299 - $499"
+    }
+  ],
+  "hours": {
+    "monday": "8:00 AM - 5:00 PM",
+    "tuesday": "8:00 AM - 5:00 PM",
+    "wednesday": "8:00 AM - 5:00 PM",
+    "thursday": "8:00 AM - 5:00 PM",
+    "friday": "8:00 AM - 5:00 PM",
+    "saturday": "9:00 AM - 2:00 PM",
+    "sunday": "Closed",
+    "emergency": "24/7 emergency service available — $149 after-hours fee"
+  },
+  "serviceArea": ["Springfield", "Decatur", "Champaign", "Bloomington"],
+  "faqs": [
+    {
+      "question": "Do you offer financing?",
+      "answer": "Yes, we offer 0% financing for 12 months on installations over $2,000 through GreenSky."
+    },
+    {
+      "question": "How quickly can you come out?",
+      "answer": "For emergencies, we offer same-day service. For routine maintenance, we can usually schedule within 2-3 business days."
+    }
+  ],
+  "collectFromCaller": ["name", "phone", "address", "serviceNeeded", "preferredDate"],
+  "bookingLink": "https://calendly.com/bondshvac/service-call",
+  "voice": {
+    "web": "nova",
+    "phone": "Polly.Joanna"
+  },
+  "notifications": {
+    "email": "dispatch@bondshvac.com",
+    "sms": "+15551234567"
+  },
+  "branding": {
+    "primaryColor": "#1E40AF",
+    "bubblePosition": "bottom-right",
+    "agentName": "Sarah"
+  }
+}

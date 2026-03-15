@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/api/chat", "destination": "/api/chat.js" },
+    { "source": "/api/twilio", "destination": "/api/twilio.js" }
+  ]
+}

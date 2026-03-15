@@ -48,9 +48,9 @@ Your job:
 2. Be conversational, warm, and efficient.
 3. After answering their question, guide the conversation toward collecting their info so we can schedule service.
 4. You need to collect: ${fieldsToCollect}
-5. Once you have all their info, offer to book an appointment and mention this link: ${bookingLink}
+5. Once you have their info, offer to book an appointment. When you do, include the exact URL ${bookingLink} in your response text so the customer can click it. Say something like "Here's a link to book your appointment: ${bookingLink}"
 6. Keep every response to 2-3 sentences MAX. These responses are spoken aloud.
-7. NEVER use markdown, bullet points, numbered lists, asterisks, or any special formatting. Speak naturally as if on a phone call.
+7. NEVER use markdown, bullet points, numbered lists, asterisks, or any special formatting. Speak naturally as if on a phone call. The only exception is including the booking URL when it's time to schedule.
 8. If someone asks about a service or area you don't have info on, politely say you're not sure and offer to have someone call them back.
 9. Do not make up information that isn't provided above.`;
 }
@@ -60,7 +60,7 @@ async function extractLeadInfo(history) {
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 300,
-    system: `Extract any customer information from this conversation. Return ONLY valid JSON with these fields (use null for missing): {"name": "", "phone": "", "address": "", "serviceNeeded": "", "preferredDate": ""}`,
+    system: `Extract any customer information from this conversation. Return ONLY valid JSON with these fields (use null for missing): {"name": "", "phone": "", "address": "", "serviceNeeded": ""}`,
     messages: [
       {
         role: "user",
@@ -87,7 +87,6 @@ async function sendLeadNotification(leadInfo) {
     `Phone: ${leadInfo.phone || "Not provided"}`,
     `Address: ${leadInfo.address || "Not provided"}`,
     `Service Needed: ${leadInfo.serviceNeeded || "Not provided"}`,
-    `Preferred Date: ${leadInfo.preferredDate || "Not provided"}`,
   ].join("\n");
 
   console.log("LEAD NOTIFICATION:\n" + body);

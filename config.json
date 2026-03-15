@@ -44,7 +44,7 @@
       "answer": "For emergencies, we offer same-day service. For routine maintenance, we can usually schedule within 2-3 business days."
     }
   ],
-  "collectFromCaller": ["name", "phone", "address", "serviceNeeded", "preferredDate"],
+  "collectFromCaller": ["name", "phone", "address", "serviceNeeded"],
   "bookingLink": "https://calendly.com/bondshvac/service-call",
   "voice": {
     "web": "nova",

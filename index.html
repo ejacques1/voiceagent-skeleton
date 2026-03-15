@@ -166,9 +166,28 @@
     function addBubble(text, role) {
       const div = document.createElement('div');
       div.className = 'bubble ' + role;
-      div.textContent = text;
       if (role === 'user') {
+        div.textContent = text;
         div.style.background = config.branding.primaryColor;
+      } else {
+        // For assistant messages, detect URLs and make them clickable
+        const urlRegex = /(https?:\/\/[^\s]+)/g;
+        const parts = text.split(urlRegex);
+        parts.forEach(part => {
+          if (urlRegex.test(part)) {
+            const a = document.createElement('a');
+            a.href = part;
+            a.textContent = 'Book Your Appointment';
+            a.target = '_blank';
+            a.style.cssText = 'color:' + config.branding.primaryColor + ';font-weight:600;text-decoration:underline;';
+            div.appendChild(a);
+            // Also show the standalone booking area
+            showBooking();
+          } else {
+            div.appendChild(document.createTextNode(part));
+          }
+          urlRegex.lastIndex = 0;
+        });
       }
       chatArea.appendChild(div);
       chatArea.scrollTop = chatArea.scrollHeight;

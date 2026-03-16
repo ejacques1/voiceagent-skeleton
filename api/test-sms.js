@@ -11,24 +11,31 @@ module.exports = async function handler(req, res) {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const fromPhone = config.notifications.sms;
 
-  console.log("Test SMS attempt:", { from: fromPhone, to: toPhone, hasSid: !!accountSid, hasAuth: !!authToken });
-
   try {
     const client = twilio(accountSid, authToken);
+
+    // Send the SMS
     const message = await client.messages.create({
       body: `Test from ${config.business.name} voice agent. Booking link: ${config.bookingLink}`,
       from: fromPhone,
       to: toPhone,
     });
+
+    // Wait 2 seconds then check delivery status
+    await new Promise((r) => setTimeout(r, 2000));
+    const updated = await client.messages(message.sid).fetch();
+
     return res.status(200).json({
       success: true,
       sid: message.sid,
-      status: message.status,
+      initialStatus: message.status,
+      deliveryStatus: updated.status,
+      errorCode: updated.errorCode || null,
+      errorMessage: updated.errorMessage || null,
       from: fromPhone,
       to: toPhone,
     });
   } catch (err) {
-    console.error("Test SMS failed:", err.message, err.code, err.moreInfo);
     return res.status(500).json({
       success: false,
       error: err.message,

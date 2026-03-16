@@ -1,11 +1,6 @@
 const Anthropic = require("@anthropic-ai/sdk");
 const OpenAI = require("openai");
-const fs = require("fs");
-const path = require("path");
-
-const config = JSON.parse(
-  fs.readFileSync(path.join(__dirname, "..", "config.json"), "utf-8")
-);
+const config = require("../config.json");
 
 function buildSystemPrompt() {
   const { business, services, hours, faqs, serviceArea, collectFromCaller, bookingLink, branding } = config;

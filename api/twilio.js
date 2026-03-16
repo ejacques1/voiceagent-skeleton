@@ -46,9 +46,10 @@ Your job:
 6. When you tell the caller you will send them a text with the booking link, include the exact phrase "SEND_BOOKING_SMS" at the very end of your response. This is a hidden trigger and will not be spoken aloud. Use this trigger generously — whenever you mention sending a text, include it.
 7. Keep every response to 2-3 sentences MAX. This is a phone call.
 8. NEVER use markdown, bullet points, numbered lists, asterisks, or any special formatting. Speak naturally.
-9. If someone asks about a service or area you don't have info on, politely say you're not sure and offer to have someone call them back.
+9. If someone asks about a service or area you don't have info on, say you're not sure but offer to send them the booking link so they can connect with the team directly.
 10. Do not make up information that isn't provided above.
-11. When wrapping up the call, always mention that you're sending them a text with the booking link, and include SEND_BOOKING_SMS.`;
+11. NEVER tell a caller to "call back" or end the conversation without offering the booking link. If the conversation stalls, the caller seems confused, or you can't help with their question, always fall back to: "Let me send you a link so you can book a time that works for you." Then include SEND_BOOKING_SMS.
+12. When wrapping up the call for ANY reason, always mention that you're sending them a text with the booking link, and include SEND_BOOKING_SMS.`;
 }
 
 function escapeXml(str) {
@@ -60,16 +61,19 @@ function escapeXml(str) {
     .replace(/'/g, "&apos;");
 }
 
-function twimlResponse(sayText, gatherAction) {
+function twimlResponse(sayText, gatherAction, callerPhone) {
   const voice = config.voice.phone;
   if (gatherAction) {
     const safeAction = gatherAction.replace(/&/g, "&amp;");
+    // Build a fallback redirect that sends the SMS before hanging up
+    const fallbackAction = `/api/twilio?sendlink=1&amp;caller=${encodeURIComponent(callerPhone || "")}`;
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="speech" timeout="5" speechTimeout="auto" action="${safeAction}">
     <Say voice="${voice}">${escapeXml(sayText)}</Say>
   </Gather>
-  <Say voice="${voice}">I didn&apos;t catch that. Feel free to call back anytime. Goodbye!</Say>
+  <Say voice="${voice}">I didn&apos;t quite catch that, but no worries. I&apos;m going to send you a text right now with a link to book an appointment. You can use that to schedule at your convenience. Thanks for calling ${escapeXml(config.business.name)}!</Say>
+  <Redirect method="POST">${fallbackAction}</Redirect>
 </Response>`;
   }
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -159,11 +163,24 @@ module.exports = async function handler(req, res) {
 
     console.log(`Turn ${turn}, caller: ${callerPhone}, speech: ${speechResult || "(none)"}, smsSent: ${smsSentAlready}`);
 
+    // Handle Gather timeout fallback — send SMS and hang up
+    if (req.query.sendlink === "1") {
+      console.log("Gather timeout fallback — sending SMS to:", callerPhone);
+      if (callerPhone) {
+        await sendBookingSms(callerPhone);
+      }
+      const voice = config.voice.phone;
+      return res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Hangup/>
+</Response>`);
+    }
+
     // First call — no speech yet, greet the caller
     if (!speechResult) {
       const history = [{ role: "assistant", content: config.greeting }];
       const action = `/api/twilio?turn=1&caller=${encodeURIComponent(callerPhone)}&sms=0&history=${encodeURIComponent(encodeHistory(history))}`;
-      return res.status(200).send(twimlResponse(config.greeting, action));
+      return res.status(200).send(twimlResponse(config.greeting, action, callerPhone));
     }
 
     // Subsequent turns — process speech
@@ -214,12 +231,12 @@ module.exports = async function handler(req, res) {
       }
       // Fire lead notification (okay to not await — TwiML response doesn't depend on it)
       sendLeadNotification(history, callerPhone).catch(() => {});
-      return res.status(200).send(twimlResponse(responseText));
+      return res.status(200).send(twimlResponse(responseText, null, callerPhone));
     }
 
     const smsFlag = smsSent ? "1" : "0";
     const nextAction = `/api/twilio?turn=${turn + 1}&caller=${encodeURIComponent(callerPhone)}&sms=${smsFlag}&history=${encodeURIComponent(encodeHistory(history))}`;
-    return res.status(200).send(twimlResponse(responseText, nextAction));
+    return res.status(200).send(twimlResponse(responseText, nextAction, callerPhone));
   } catch (error) {
     console.error("Twilio handler error:", error);
     return res

@@ -45,7 +45,7 @@
     }
   ],
   "collectFromCaller": ["name", "phone", "address", "serviceNeeded"],
-  "bookingLink": "https://calendly.com/bondshvac/service-call",
+  "bookingLink": "https://calendly.com/drerintj/30min",
   "voice": {
     "web": "nova",
     "phone": "Polly.Joanna"

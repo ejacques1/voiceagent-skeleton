@@ -1,4 +1,5 @@
 const Anthropic = require("@anthropic-ai/sdk");
+const twilio = require("twilio");
 const config = require("../config.json");
 
 function buildSystemPrompt() {
@@ -46,22 +47,22 @@ Your job:
 6. Do not make up information that isn't provided above.
 
 CONVERSATION FLOW:
-- On your FIRST response, answer their question or greet them warmly. Ask what service they need or what's going on. Do NOT include the booking link yet.
-- On your SECOND response, answer their follow-up briefly. You may ask ONE more light question (like their name), but it's not required. Then offer the booking link. Say something like "Here's a link to book your appointment: ${bookingLink}"
-- You should include the booking link by your SECOND or THIRD response at the latest.
+- On your FIRST response: Answer their question or greet them warmly. Ask what service they need or what's going on. Do NOT include the booking link on this turn. Just have a normal, helpful conversation start.
+- On your SECOND response: Answer their follow-up briefly. Then offer the booking link naturally. Say something like "I'd love to get you scheduled — here's a link to book your appointment: ${bookingLink}"
+- On your THIRD response (if the conversation continues): You MUST include the booking link if you haven't already. No exceptions.
+- A short answer like "heating" or "AC" or "hi" is normal — it does NOT mean the person is reluctant. Continue the conversation naturally.
 
-EARLY LINK TRIGGERS — offer the booking link IMMEDIATELY (even on your first response) if:
-- The customer seems reluctant, short, or unwilling to engage (one-word answers, vague responses, "idk", "not sure", etc.)
-- The customer declines to answer a question or says they don't want to share info
-- The customer explicitly asks to book or schedule
-- The conversation stalls or the customer seems confused
-- The customer gives gibberish or unclear responses
+WHEN TO OFFER THE LINK EARLY (on your second response instead of continuing to chat):
+- The customer explicitly asks to book, schedule, or get an appointment
+- The customer declines to answer a question or says they don't want to share info (e.g., "no", "I don't want to say", "none of your business")
+- The customer gives complete gibberish or clearly nonsensical responses
+- The conversation has gone 3+ turns without the link being shared
 
 RULES FOR THE BOOKING LINK:
 - You do NOT need to collect ANY information before offering the link. Calendly handles scheduling details.
 - NEVER ask for the customer's address. Calendly and the service team handle that.
 - NEVER ask for the customer's phone number.
-- If a customer declines to share their name or any info, that is 100% fine. Do NOT push. Immediately offer the booking link.
+- If a customer declines to share their name or any info, that is 100% fine. Do NOT push. Offer the booking link instead.
 - NEVER hold the booking link hostage behind collecting information.
 - Ask a MAXIMUM of 2 questions total across the entire conversation. Do not interrogate the customer.
 - When you offer the link, include the exact URL in your text: ${bookingLink}`;
@@ -88,12 +89,14 @@ async function extractLeadInfo(history) {
 }
 
 async function sendLeadNotification(leadInfo) {
-  const email = process.env.NOTIFICATION_EMAIL || config.notifications.email;
-  if (!email) return;
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const ownerPhone = config.notifications.ownerPhone;
+  const fromPhone = config.notifications.sms;
 
   const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/Chicago" });
   const body = [
-    `New Lead from ${config.business.name} Chat Agent`,
+    `New Lead from ${config.business.name} Web Chat`,
     `Time: ${timestamp}`,
     `Name: ${leadInfo.name || "Not provided"}`,
     `Phone: ${leadInfo.phone || "Not provided"}`,
@@ -102,6 +105,24 @@ async function sendLeadNotification(leadInfo) {
   ].join("\n");
 
   console.log("LEAD NOTIFICATION:\n" + body);
+
+  // Send SMS to business owner
+  if (!accountSid || !authToken || !ownerPhone || ownerPhone === "+1XXXXXXXXXX") {
+    console.log("LEAD SMS SKIPPED — missing Twilio credentials or ownerPhone not configured");
+    return;
+  }
+
+  try {
+    const client = twilio(accountSid, authToken);
+    await client.messages.create({
+      body: body,
+      from: fromPhone,
+      to: ownerPhone,
+    });
+    console.log(`LEAD SMS SENT to owner: ${ownerPhone}`);
+  } catch (err) {
+    console.error(`LEAD SMS FAILED: to=${ownerPhone}, error=${err.message}, code=${err.code}`);
+  }
 }
 
 module.exports = async function handler(req, res) {
@@ -138,16 +159,17 @@ module.exports = async function handler(req, res) {
 
     // Check if we have enough info to send a lead notification
     const fullHistory = [...messages, { role: "assistant", content: textResponse }];
-    const hasEnoughTurns = fullHistory.filter((m) => m.role === "user").length >= 3;
+    const hasEnoughTurns = fullHistory.filter((m) => m.role === "user").length >= 2;
 
     if (hasEnoughTurns) {
-      extractLeadInfo(fullHistory)
-        .then((info) => {
-          if (info && info.name && info.phone) {
-            sendLeadNotification(info);
-          }
-        })
-        .catch(() => {});
+      try {
+        const info = await extractLeadInfo(fullHistory);
+        if (info && (info.name || info.phone || info.serviceNeeded)) {
+          await sendLeadNotification(info);
+        }
+      } catch (err) {
+        console.error("Lead extraction/notification error:", err.message);
+      }
     }
 
     return res.status(200).json({

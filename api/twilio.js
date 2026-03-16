@@ -43,18 +43,18 @@ TURN 1 (your first reply after the greeting):
 - Acknowledge what the caller said and help with their question.
 - Mention their phone number naturally: "And I can see you're calling from ${callerPhone}, so I've got your number in case we get disconnected."
 - Ask ONE question to understand what they need: "What can I help you with today?" or "Tell me more about what's going on."
-- Do NOT offer the booking link yet on this turn (unless the caller explicitly asks to book, or seems reluctant/confused — see Early Link Triggers below).
+- Do NOT offer the booking link on this turn. Just have a normal, helpful start to the call.
+- A short answer like "heating" or "AC repair" is normal for a phone call — it does NOT mean the caller is reluctant.
 
 TURN 2 (your second reply):
 - Answer their question briefly using the business info below.
 - Then offer the booking link. Say something like "I'd love to get you scheduled. I'm going to send a text to ${callerPhone} with a link to book your appointment."
 - Include SEND_BOOKING_SMS at the very end of this response.
 
-EARLY LINK TRIGGERS — skip straight to offering the booking link (even on Turn 1) if:
-- The caller seems reluctant, gives one-word answers, or doesn't want to engage.
-- The caller declines to answer a question or says they don't want to share info.
-- The caller explicitly asks to book or schedule.
-- The caller is silent, confused, or gives unclear/gibberish responses.
+WHEN TO OFFER THE LINK EARLY (skip to Turn 2 behavior):
+- The caller explicitly asks to book, schedule, or get an appointment.
+- The caller declines to answer a question or refuses to engage (e.g., "I don't want to say", "no", "just send me the link").
+- The caller gives complete gibberish or clearly nonsensical responses.
 - You can't hear them or they can't hear you.
 In these cases, say something like "No worries at all, let me send you a text with a link to book an appointment." Then include SEND_BOOKING_SMS.
 
@@ -181,11 +181,37 @@ async function sendLeadNotification(history, callerPhone) {
     });
     const info = JSON.parse(response.content[0].text);
     const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/Chicago" });
-    console.log(
-      `PHONE LEAD:\nTime: ${timestamp}\nName: ${info.name || "N/A"}\nPhone: ${callerPhone}\nAddress: ${info.address || "N/A"}\nService: ${info.serviceNeeded || "N/A"}`
-    );
+    const body = [
+      `New Lead from ${config.business.name} Phone Call`,
+      `Time: ${timestamp}`,
+      `Name: ${info.name || "Not provided"}`,
+      `Phone: ${callerPhone || "Not provided"}`,
+      `Address: ${info.address || "Not provided"}`,
+      `Service Needed: ${info.serviceNeeded || "Not provided"}`,
+    ].join("\n");
+
+    console.log("PHONE LEAD NOTIFICATION:\n" + body);
+
+    // Send SMS to business owner
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const ownerPhone = config.notifications.ownerPhone;
+    const fromPhone = config.notifications.sms;
+
+    if (!accountSid || !authToken || !ownerPhone || ownerPhone === "+1XXXXXXXXXX") {
+      console.log("LEAD SMS SKIPPED — missing Twilio credentials or ownerPhone not configured");
+      return;
+    }
+
+    const client = twilio(accountSid, authToken);
+    await client.messages.create({
+      body: body,
+      from: fromPhone,
+      to: ownerPhone,
+    });
+    console.log(`LEAD SMS SENT to owner: ${ownerPhone}`);
   } catch (err) {
-    console.error("Lead extraction error:", err.message);
+    console.error("Lead extraction/notification error:", err.message);
   }
 }
 
@@ -274,8 +300,8 @@ module.exports = async function handler(req, res) {
         console.log("End of call — sending booking SMS as fallback to:", callerPhone);
         await sendBookingSms(callerPhone);
       }
-      // Fire lead notification (okay to not await — TwiML response doesn't depend on it)
-      sendLeadNotification(history, callerPhone).catch(() => {});
+      // Await lead notification SMS before responding (Vercel kills after res.send)
+      await sendLeadNotification(history, callerPhone);
       return res.status(200).send(twimlResponse(responseText, null, callerPhone));
     }
 

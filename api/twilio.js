@@ -40,9 +40,9 @@ ${faqList}
 Your job:
 1. Answer customer questions about the business using ONLY the info above.
 2. Be conversational, warm, and efficient. You are speaking on the phone.
-3. You already have the caller's phone number (${callerPhone}) from caller ID. Do NOT ask for their phone number separately.
+3. You already have the caller's phone number (${callerPhone}) from caller ID. In your FIRST response after the greeting, mention this naturally. Say something like "And I can see you're calling from ${callerPhone}, so I've got your number in case we get disconnected." Then move on to helping them.
 4. Try to naturally learn the caller's name, what service they need, and their address IF they are willing to share. But do NOT pressure them or refuse to help if they decline to share info.
-5. At ANY point when the caller wants to book or schedule, or once you have answered their questions, offer to text them a booking link. Say something like "I see you're calling from ${callerPhone}, I'll send a booking link to that number unless you'd prefer I send it somewhere else." If they confirm or don't object, send it. If they give a different number, acknowledge it.
+5. At ANY point when the caller wants to book or schedule, or once you have answered their questions, offer to text them a booking link. Say something like "I'll send a booking link to the number you're calling from unless you'd prefer I send it somewhere else." You do NOT need to collect all their info first.
 6. When you tell the caller you will send them a text with the booking link, include the exact phrase "SEND_BOOKING_SMS" at the very end of your response. This is a hidden trigger and will not be spoken aloud. Use this trigger generously — whenever you mention sending a text, include it.
 7. Keep every response to 2-3 sentences MAX. This is a phone call.
 8. NEVER use markdown, bullet points, numbered lists, asterisks, or any special formatting. Speak naturally.
@@ -189,13 +189,11 @@ module.exports = async function handler(req, res) {
 
     history.push({ role: "assistant", content: responseText });
 
-    // Send booking SMS if triggered and not already sent
+    // Send booking SMS if triggered and not already sent — MUST await before response
     let smsSent = smsSentAlready;
     if (triggerDetected && !smsSent && callerPhone) {
       console.log("Sending SMS to:", callerPhone);
-      sendBookingSms(callerPhone).then((ok) => {
-        if (ok) console.log("SMS delivered successfully");
-      }).catch(() => {});
+      await sendBookingSms(callerPhone);
       smsSent = true;
     }
 
@@ -209,11 +207,12 @@ module.exports = async function handler(req, res) {
 
     const maxTurns = 12;
     if (isGoodbye || turn >= maxTurns) {
-      // ALWAYS send SMS when call ends if it hasn't been sent yet
+      // ALWAYS send SMS when call ends if it hasn't been sent yet — await it
       if (!smsSent && callerPhone) {
         console.log("End of call — sending booking SMS as fallback to:", callerPhone);
-        sendBookingSms(callerPhone).catch(() => {});
+        await sendBookingSms(callerPhone);
       }
+      // Fire lead notification (okay to not await — TwiML response doesn't depend on it)
       sendLeadNotification(history, callerPhone).catch(() => {});
       return res.status(200).send(twimlResponse(responseText));
     }

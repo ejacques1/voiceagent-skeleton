@@ -2,7 +2,7 @@ const Anthropic = require("@anthropic-ai/sdk");
 const twilio = require("twilio");
 const config = require("../config.json");
 
-function buildSystemPrompt() {
+function buildSystemPrompt(callerPhone) {
   const { business, services, hours, faqs, serviceArea, collectFromCaller, bookingLink, branding } = config;
 
   const serviceList = services
@@ -18,7 +18,10 @@ function buildSystemPrompt() {
     .join("\n\n");
 
   const areas = serviceArea.join(", ");
-  const fieldsToCollect = collectFromCaller.join(", ");
+
+  // For phone calls, we already have the caller's phone number — don't ask for it
+  const phoneFields = collectFromCaller.filter((f) => f !== "phone");
+  const fieldsToCollect = phoneFields.join(", ");
 
   return `You are ${branding.agentName}, a friendly and professional phone agent for ${business.name}.
 
@@ -43,12 +46,13 @@ Your job:
 2. Be conversational, warm, and efficient. You are speaking on the phone.
 3. After answering their question, guide the conversation toward collecting their info so we can schedule service.
 4. You need to collect: ${fieldsToCollect}
-5. Once you have their info, offer to send them a text message with a link to book their appointment. Say something like "I'll send you a text right now with a link to book your appointment." Do NOT read a URL out loud — the customer is on a phone and cannot click links.
-6. When you are ready to send the booking link via text, include the exact phrase "SEND_BOOKING_SMS" at the very end of your response. This is a hidden trigger and will not be spoken aloud.
-7. Keep every response to 2-3 sentences MAX. This is a phone call.
-8. NEVER use markdown, bullet points, numbered lists, asterisks, or any special formatting. Speak naturally.
-9. If someone asks about a service or area you don't have info on, politely say you're not sure and offer to have someone call them back.
-10. Do not make up information that isn't provided above.`;
+5. You already have the caller's phone number (${callerPhone}) from caller ID. Do NOT ask for their phone number.
+6. Once you have their name, address, and what service they need, offer to send them a text message with a link to book their appointment. Say something like "I'll send you a text right now with a link to book your appointment."
+7. When you are ready to send the booking link via text, include the exact phrase "SEND_BOOKING_SMS" at the very end of your response. This is a hidden trigger and will not be spoken aloud.
+8. Keep every response to 2-3 sentences MAX. This is a phone call.
+9. NEVER use markdown, bullet points, numbered lists, asterisks, or any special formatting. Speak naturally.
+10. If someone asks about a service or area you don't have info on, politely say you're not sure and offer to have someone call them back.
+11. Do not make up information that isn't provided above.`;
 }
 
 function escapeXml(str) {
@@ -91,52 +95,36 @@ function decodeHistory(encoded) {
   }
 }
 
-async function extractPhoneFromHistory(history) {
-  try {
-    const anthropic = new Anthropic();
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 100,
-      system: `Extract the customer's phone number from this conversation. Return ONLY the phone number in E.164 format (e.g., +15551234567). If no phone number was provided, return "none".`,
-      messages: [
-        {
-          role: "user",
-          content: history.map((m) => `${m.role}: ${m.content}`).join("\n"),
-        },
-      ],
-    });
-    const phone = response.content[0].text.trim();
-    return phone !== "none" ? phone : null;
-  } catch {
-    return null;
-  }
-}
-
 async function sendBookingSms(toPhone) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  if (!accountSid || !authToken || !toPhone) return;
+  if (!accountSid || !authToken || !toPhone) {
+    console.log("SMS skipped — missing credentials or phone:", { accountSid: !!accountSid, authToken: !!authToken, toPhone });
+    return;
+  }
 
-  const client = twilio(accountSid, authToken);
+  try {
+    const client = twilio(accountSid, authToken);
+    const fromPhone = config.notifications.sms;
 
-  // Use the Twilio number that received the call (from config or env)
-  const fromPhone = config.notifications.sms;
-
-  await client.messages.create({
-    body: `Thanks for calling ${config.business.name}! Here's your link to book an appointment: ${config.bookingLink}`,
-    from: fromPhone,
-    to: toPhone,
-  });
-  console.log(`Booking SMS sent to ${toPhone}`);
+    const message = await client.messages.create({
+      body: `Thanks for calling ${config.business.name}! Here's your link to book an appointment: ${config.bookingLink}`,
+      from: fromPhone,
+      to: toPhone,
+    });
+    console.log(`Booking SMS sent to ${toPhone}, SID: ${message.sid}`);
+  } catch (err) {
+    console.error("SMS send failed:", err.message);
+  }
 }
 
-async function sendLeadNotification(history) {
+async function sendLeadNotification(history, callerPhone) {
   try {
     const anthropic = new Anthropic();
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 300,
-      system: `Extract any customer information from this phone conversation. Return ONLY valid JSON with these fields (use null for missing): {"name": "", "phone": "", "address": "", "serviceNeeded": ""}`,
+      system: `Extract any customer information from this phone conversation. Return ONLY valid JSON with these fields (use null for missing): {"name": "", "address": "", "serviceNeeded": ""}`,
       messages: [
         {
           role: "user",
@@ -148,11 +136,11 @@ async function sendLeadNotification(history) {
     if (info && info.name) {
       const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/Chicago" });
       console.log(
-        `PHONE LEAD:\nTime: ${timestamp}\nName: ${info.name}\nPhone: ${info.phone || "N/A"}\nAddress: ${info.address || "N/A"}\nService: ${info.serviceNeeded || "N/A"}`
+        `PHONE LEAD:\nTime: ${timestamp}\nName: ${info.name}\nPhone: ${callerPhone}\nAddress: ${info.address || "N/A"}\nService: ${info.serviceNeeded || "N/A"}`
       );
     }
   } catch (err) {
-    console.error("Lead extraction error:", err);
+    console.error("Lead extraction error:", err.message);
   }
 }
 
@@ -169,10 +157,15 @@ module.exports = async function handler(req, res) {
     const historyParam = req.query.history;
     const turn = parseInt(req.query.turn || "0", 10);
 
+    // Get caller's phone number — from Twilio on first call, or from URL on subsequent turns
+    const callerPhone = req.body.From || req.query.caller || "";
+
+    console.log(`Turn ${turn}, caller: ${callerPhone}, speech: ${speechResult || "(none)"}`);
+
     // First call — no speech yet, greet the caller
     if (!speechResult) {
       const history = [{ role: "assistant", content: config.greeting }];
-      const action = `/api/twilio?turn=1&history=${encodeURIComponent(encodeHistory(history))}`;
+      const action = `/api/twilio?turn=1&caller=${encodeURIComponent(callerPhone)}&history=${encodeURIComponent(encodeHistory(history))}`;
       return res.status(200).send(twimlResponse(config.greeting, action));
     }
 
@@ -184,7 +177,7 @@ module.exports = async function handler(req, res) {
     const claudeResponse = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 300,
-      system: buildSystemPrompt(),
+      system: buildSystemPrompt(callerPhone),
       messages: history,
     });
 
@@ -193,18 +186,17 @@ module.exports = async function handler(req, res) {
     // Check for SMS trigger and strip it from spoken text
     const shouldSendSms = responseText.includes("SEND_BOOKING_SMS");
     if (shouldSendSms) {
-      responseText = responseText.replace("SEND_BOOKING_SMS", "").trim();
+      responseText = responseText.replace(/SEND_BOOKING_SMS/g, "").trim();
+      console.log("SMS trigger detected, sending to:", callerPhone);
     }
 
     history.push({ role: "assistant", content: responseText });
 
-    // Send booking SMS if triggered
-    if (shouldSendSms) {
-      extractPhoneFromHistory(history)
-        .then((phone) => {
-          if (phone) sendBookingSms(phone);
-        })
-        .catch(() => {});
+    // Send booking SMS if triggered — use caller's phone directly
+    if (shouldSendSms && callerPhone) {
+      sendBookingSms(callerPhone).catch((err) =>
+        console.error("SMS background error:", err.message)
+      );
     }
 
     // Check if conversation should end (collected all info or goodbye)
@@ -216,11 +208,11 @@ module.exports = async function handler(req, res) {
 
     const maxTurns = 12;
     if (isGoodbye || turn >= maxTurns) {
-      sendLeadNotification(history).catch(() => {});
+      sendLeadNotification(history, callerPhone).catch(() => {});
       return res.status(200).send(twimlResponse(responseText));
     }
 
-    const nextAction = `/api/twilio?turn=${turn + 1}&history=${encodeURIComponent(encodeHistory(history))}`;
+    const nextAction = `/api/twilio?turn=${turn + 1}&caller=${encodeURIComponent(callerPhone)}&history=${encodeURIComponent(encodeHistory(history))}`;
     return res.status(200).send(twimlResponse(responseText, nextAction));
   } catch (error) {
     console.error("Twilio handler error:", error);

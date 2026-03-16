@@ -63,12 +63,13 @@ function escapeXml(str) {
 function twimlResponse(sayText, gatherAction) {
   const voice = config.voice.phone;
   if (gatherAction) {
+    const safeAction = gatherAction.replace(/&/g, "&amp;");
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Gather input="speech" timeout="5" speechTimeout="auto" action="${gatherAction}">
+  <Gather input="speech" timeout="5" speechTimeout="auto" action="${safeAction}">
     <Say voice="${voice}">${escapeXml(sayText)}</Say>
   </Gather>
-  <Say voice="${voice}">I didn't catch that. Feel free to call back anytime. Goodbye!</Say>
+  <Say voice="${voice}">I didn&apos;t catch that. Feel free to call back anytime. Goodbye!</Say>
 </Response>`;
   }
   return `<?xml version="1.0" encoding="UTF-8"?>
